@@ -1,4 +1,5 @@
 import './index.css'
+import PropTypes from 'prop-types'
 
 const DishItem = ({
   dishDetails,
@@ -29,11 +30,21 @@ const DishItem = ({
 
   const renderControllerButton = () => (
     <div className="controller-container d-flex align-items-center bg-success">
-      <button className="button" type="button" onClick={onDecreaseQuantity}>
+      <button 
+        className="button" 
+        type="button" 
+        onClick={onDecreaseQuantity}
+        aria-label={`Decrease quantity of ${dishName}`}
+      >
         -
       </button>
-      <p className="quantity">{getQuantity()}</p>
-      <button className="button" type="button" onClick={onIncreaseQuantity}>
+      <p className="quantity" role="status" aria-live="polite">{getQuantity()}</p>
+      <button 
+        className="button" 
+        type="button" 
+        onClick={onIncreaseQuantity}
+        aria-label={`Increase quantity of ${dishName}`}
+      >
         +
       </button>
     </div>
@@ -65,6 +76,29 @@ const DishItem = ({
       <img className="dish-image" alt={dishName} src={dishImage} />
     </li>
   )
+}
+
+DishItem.propTypes = {
+  dishDetails: PropTypes.shape({
+    dishId: PropTypes.string.isRequired,
+    dishName: PropTypes.string.isRequired,
+    dishType: PropTypes.number.isRequired,
+    dishPrice: PropTypes.number.isRequired,
+    dishCurrency: PropTypes.string.isRequired,
+    dishDescription: PropTypes.string.isRequired,
+    dishImage: PropTypes.string.isRequired,
+    dishCalories: PropTypes.number.isRequired,
+    addonCat: PropTypes.array.isRequired,
+    dishAvailability: PropTypes.bool.isRequired,
+  }).isRequired,
+  cartItems: PropTypes.arrayOf(
+    PropTypes.shape({
+      dishId: PropTypes.string.isRequired,
+      quantity: PropTypes.number.isRequired,
+    })
+  ).isRequired,
+  addItemToCart: PropTypes.func.isRequired,
+  removeItemFromCart: PropTypes.func.isRequired,
 }
 
 export default DishItem

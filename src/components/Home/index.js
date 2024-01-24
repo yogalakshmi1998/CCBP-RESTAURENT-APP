@@ -1,47 +1,54 @@
-import {useState, useEffect} from 'react'
-
+import {useState, useEffect, useCallback, useMemo} from 'react'
+import PropTypes from 'prop-types'
 import Header from '../Header'
 import DishItem from '../DishItem'
 
 import './index.css'
 
+const API_URL = 'https://run.mocky.io/v3/77a7e71b-804a-4fbd-822c-3e365d3482cc'
+
 const Home = () => {
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [response, setResponse] = useState([])
   const [activeCategoryId, setActiveCategoryId] = useState('')
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const savedCart = localStorage.getItem('cartItems')
+      return savedCart ? JSON.parse(savedCart) : []
+    } catch {
+      return []
+    }
+  })
 
-  const [cartItems, setCartItems] = useState([])
+  const addItemToCart = useCallback(dish => {
+    setCartItems(prev => {
+      const existingItem = prev.find(item => item.dishId === dish.dishId)
+      if (!existingItem) {
+        return [...prev, {...dish, quantity: 1}]
+      }
+      return prev.map(item =>
+        item.dishId === dish.dishId
+          ? {...item, quantity: item.quantity + 1}
+          : item
+      )
+    })
+  }, [])
 
-  const addItemToCart = dish => {
-    const isAlreadyExists = cartItems.find(item => item.dishId === dish.dishId)
-    if (!isAlreadyExists) {
-      const newDish = {...dish, quantity: 1}
-      setCartItems(prev => [...prev, newDish])
-    } else {
-      setCartItems(prev =>
-        prev.map(item =>
+  const removeItemFromCart = useCallback(dish => {
+    setCartItems(prev => {
+      const existingItem = prev.find(item => item.dishId === dish.dishId)
+      if (!existingItem) return prev
+      
+      return prev
+        .map(item =>
           item.dishId === dish.dishId
-            ? {...item, quantity: item.quantity + 1}
-            : item,
-        ),
-      )
-    }
-  }
-
-  const removeItemFromCart = dish => {
-    const isAlreadyExists = cartItems.find(item => item.dishId === dish.dishId)
-    if (isAlreadyExists) {
-      setCartItems(prev =>
-        prev
-          .map(item =>
-            item.dishId === dish.dishId
-              ? {...item, quantity: item.quantity - 1}
-              : item,
-          )
-          .filter(item => item.quantity > 0),
-      )
-    }
-  }
+            ? {...item, quantity: item.quantity - 1}
+            : item
+        )
+        .filter(item => item.quantity > 0)
+    })
+  }, [])
 
   const getUpdatedData = tableMenuList =>
     tableMenuList.map(eachMenu => ({
@@ -62,53 +69,83 @@ const Home = () => {
       })),
     }))
 
-  const fetchRestaurantApi = async () => {
-    const api = 'https://run.mocky.io/v3/77a7e71b-804a-4fbd-822c-3e365d3482cc'
-    const apiResponse = await fetch(api)
-    const data = await apiResponse.json()
-    const updatedData = getUpdatedData(data[0].table_menu_list)
-    setResponse(updatedData)
-    setActiveCategoryId(updatedData[0].menuCategoryId)
-    setIsLoading(false)
+  const fetchRestaurantApi = async (signal) => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const apiResponse = await fetch(API_URL, { signal })
+      if (!apiResponse.ok) {
+        throw new Error('Failed to fetch menu data')
+      }
+      const data = await apiResponse.json()
+      if (!data?.[0]?.table_menu_list) {
+        throw new Error('Invalid data format')
+      }
+      const updatedData = getUpdatedData(data[0].table_menu_list)
+      setResponse(updatedData)
+      setActiveCategoryId(updatedData[0]?.menuCategoryId || '')
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setError(err.message)
+        console.error('Error fetching menu:', err)
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   useEffect(() => {
-    fetchRestaurantApi()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const abortController = new AbortController()
+    fetchRestaurantApi(abortController.signal)
+    return () => abortController.abort()
   }, [])
 
-  const onUpdateActiveCategoryIdx = menuCategoryId =>
+  // Save cart items to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('cartItems', JSON.stringify(cartItems))
+    } catch (err) {
+      console.error('Error saving cart items:', err)
+    }
+  }, [cartItems])
+
+  const onUpdateActiveCategoryIdx = useCallback(menuCategoryId => {
     setActiveCategoryId(menuCategoryId)
+  }, [])
 
-  const renderTabMenuList = () =>
-    response.map(eachCategory => {
-      const onClickHandler = () =>
-        onUpdateActiveCategoryIdx(eachCategory.menuCategoryId)
-
+  const renderTabMenuList = useCallback(() => {
+    return response.map(eachCategory => {
+      const isActive = eachCategory.menuCategoryId === activeCategoryId
       return (
         <li
-          className={`each-tab-item ${
-            eachCategory.menuCategoryId === activeCategoryId
-              ? 'active-tab-item'
-              : ''
-          }`}
+          className={`each-tab-item ${isActive ? 'active-tab-item' : ''}`}
           key={eachCategory.menuCategoryId}
-          onClick={onClickHandler}
+          role="presentation"
         >
           <button
             type="button"
             className="mt-0 mb-0 ms-2 me-2 tab-category-button"
+            onClick={() => onUpdateActiveCategoryIdx(eachCategory.menuCategoryId)}
+            aria-pressed={isActive}
+            aria-label={`Show ${eachCategory.menuCategory} menu`}
           >
             {eachCategory.menuCategory}
           </button>
         </li>
       )
     })
+  }, [response, activeCategoryId, onUpdateActiveCategoryIdx])
 
   const renderDishes = () => {
-    const {categoryDishes} = response.find(
+    const activeCategory = response.find(
       eachCategory => eachCategory.menuCategoryId === activeCategoryId,
     )
+    
+    if (!activeCategory) {
+      return null
+    }
+
+    const {categoryDishes} = activeCategory
 
     return (
       <ul className="m-0 d-flex flex-column dishes-list-container">
@@ -126,20 +163,54 @@ const Home = () => {
   }
 
   const renderSpinner = () => (
-    <div className="spinner-container">
-      <div className="spinner-border" role="status" />
+    <div className="spinner-container" role="alert" aria-busy="true">
+      <div className="spinner-border" role="status">
+        <span className="visually-hidden">Loading...</span>
+      </div>
     </div>
   )
 
-  return isLoading ? (
-    renderSpinner()
-  ) : (
-    <div className="home-background">
-      <Header cartItems={cartItems} />
-      <ul className="m-0 ps-0 d-flex tab-container">{renderTabMenuList()}</ul>
-      {renderDishes()}
+  const renderError = () => (
+    <div className="spinner-container" role="alert">
+      <div className="text-danger">
+        <h2>Error Loading Menu</h2>
+        <p>{error}</p>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={fetchRestaurantApi}
+        >
+          Retry
+        </button>
+      </div>
     </div>
   )
+
+  if (isLoading) {
+    return renderSpinner()
+  }
+
+  if (error) {
+    return renderError()
+  }
+
+  return (
+    <div className="home-background">
+      <Header cartItems={cartItems} />
+      <nav aria-label="Menu Categories">
+        <ul className="m-0 ps-0 d-flex tab-container" role="tablist">
+          {renderTabMenuList()}
+        </ul>
+      </nav>
+      <main>
+        {renderDishes()}
+      </main>
+    </div>
+  )
+}
+
+Home.propTypes = {
+  // This component doesn't receive any props, but we'll add this for documentation
 }
 
 export default Home
